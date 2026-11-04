@@ -156,6 +156,25 @@ type CreateRequest struct {
 	Body     string
 }
 
+func (s *Service) CreateAuthor(ctx context.Context, name string) (*domain.Author, error) {
+	if err := domain.ValidateAuthorName(name); err != nil {
+		return nil, err
+	}
+	author, err := s.authors.Create(ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("create author: %w", err)
+	}
+	return author, nil
+}
+
+func (s *Service) ListAuthors(ctx context.Context) ([]*domain.Author, error) {
+	authors, err := s.authors.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list authors: %w", err)
+	}
+	return authors, nil
+}
+
 type UpdateRequest struct {
 	ID    int64
 	Title *string

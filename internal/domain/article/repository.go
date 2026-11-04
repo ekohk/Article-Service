@@ -45,6 +45,9 @@ type ArticleRepository interface {
 
 // AuthorRepository defines read operations for authors.
 type AuthorRepository interface {
+	Create(ctx context.Context, name string) (*Author, error)
+	List(ctx context.Context) ([]*Author, error)
+
 	// GetByID returns the author or ErrAuthorNotFound.
 	GetByID(ctx context.Context, id int64) (*Author, error)
 

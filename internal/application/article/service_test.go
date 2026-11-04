@@ -32,6 +32,23 @@ type fakeAuthorRepo struct {
 	err    error
 }
 
+func (f *fakeAuthorRepo) Create(_ context.Context, name string) (*domain.Author, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &domain.Author{ID: 1, Name: name, CreatedAt: time.Now()}, nil
+}
+
+func (f *fakeAuthorRepo) List(context.Context) ([]*domain.Author, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.author == nil {
+		return []*domain.Author{}, nil
+	}
+	return []*domain.Author{f.author}, nil
+}
+
 func (f *fakeAuthorRepo) GetByID(_ context.Context, _ int64) (*domain.Author, error) {
 	return f.author, f.err
 }

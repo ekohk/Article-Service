@@ -19,6 +19,43 @@ func NewAuthorRepository(db *sql.DB) *AuthorRepository {
 	return &AuthorRepository{db: db}
 }
 
+func (r *AuthorRepository) Create(ctx context.Context, name string) (*article.Author, error) {
+	const q = `
+		INSERT INTO authors (name)
+		VALUES ($1)
+		RETURNING id, name, created_at`
+	var a article.Author
+	if err := r.db.QueryRowContext(ctx, q, name).Scan(&a.ID, &a.Name, &a.CreatedAt); err != nil {
+		return nil, fmt.Errorf("author Create: %w", err)
+	}
+	return &a, nil
+}
+
+func (r *AuthorRepository) List(ctx context.Context) ([]*article.Author, error) {
+	const q = `
+		SELECT id, name, created_at
+		FROM authors
+		ORDER BY id ASC`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("author List: %w", err)
+	}
+	defer rows.Close()
+
+	authors := make([]*article.Author, 0)
+	for rows.Next() {
+		author := new(article.Author)
+		if err := rows.Scan(&author.ID, &author.Name, &author.CreatedAt); err != nil {
+			return nil, fmt.Errorf("author List scan: %w", err)
+		}
+		authors = append(authors, author)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("author List rows: %w", err)
+	}
+	return authors, nil
+}
+
 // GetByID returns the author with the given id or article.ErrAuthorNotFound.
 func (r *AuthorRepository) GetByID(ctx context.Context, id int64) (*article.Author, error) {
 	const q = `

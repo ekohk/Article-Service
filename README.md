@@ -189,6 +189,53 @@ Returns `201 Created` with `{ "data": { ... } }`. `author_id` must be positive,
 the author must exist, title/body must be non-blank, title is limited to 500
 characters, body to 50,000 characters, and the request body to 2 MB.
 
+### `POST /authors`
+
+Creates an author record. Author names may be duplicated; author filtering
+normalizes names with `LOWER(BTRIM(name))`.
+
+Request:
+
+```json
+{
+  "name": "Andi Pratama"
+}
+```
+
+Returns `201 Created`:
+
+```json
+{
+  "data": {
+    "id": 3,
+    "name": "Andi Pratama",
+    "created_at": "2026-11-04T00:00:00Z"
+  }
+}
+```
+
+The name must not be blank and must not exceed the database limit of 255
+characters.
+
+### `GET /authors`
+
+Returns all authors ordered by ascending `id`. Duplicate names are preserved
+as separate author records.
+
+Response:
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "name": "Budi Santoso",
+      "created_at": "2026-11-04T00:00:00Z"
+    }
+  ]
+}
+```
+
 ### `GET /articles`
 
 Query parameters:
@@ -209,6 +256,12 @@ GET /articles?query=golang
 GET /articles?query=golang&author=Budi
 GET /articles?query=golang&cursor=<opaque-token>
 ```
+
+An Elasticsearch search cursor is bound to the exact keyword and author
+filter used to create it. For example, a cursor returned by
+`GET /articles?query=Golang&limit=10` must be sent to a subsequent request that
+also includes `query=Golang` (and the same `author`, if present). Removing or
+changing those filters returns `INVALID_CURSOR`.
 
 Response:
 

@@ -18,6 +18,73 @@
   ],
   "item": [
     {
+      "name": "Authors",
+      "item": [
+        {
+          "name": "Create Author",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Andi Pratama\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/authors",
+              "host": ["{{base_url}}"],
+              "path": ["authors"]
+            }
+          },
+          "response": [],
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"status is 201\", function () { pm.response.to.have.status(201); });",
+                "const json = pm.response.json();",
+                "pm.test(\"author response has the documented fields\", function () {",
+                "    pm.expect(json.data).to.include.all.keys(\"id\", \"name\", \"created_at\");",
+                "    pm.expect(json.data.id).to.be.a(\"number\").and.above(0);",
+                "    pm.expect(json.data.name).to.eql(\"Andi Pratama\");",
+                "    pm.expect(json.data.created_at).to.be.a(\"string\");",
+                "});"
+              ]
+            }
+          }]
+        }
+        ,
+        {
+          "name": "List Authors",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/authors",
+              "host": ["{{base_url}}"],
+              "path": ["authors"]
+            }
+          },
+          "response": [],
+          "event": [{
+            "listen": "test",
+            "script": {
+              "type": "text/javascript",
+              "exec": [
+                "pm.test(\"status is 200\", function () { pm.response.to.have.status(200); });",
+                "const json = pm.response.json();",
+                "pm.test(\"author list response has data array\", function () {",
+                "    pm.expect(json.data).to.be.an(\"array\");",
+                "    json.data.forEach(function (author) { pm.expect(author).to.include.all.keys(\"id\", \"name\", \"created_at\"); pm.expect(author.id).to.be.a(\"number\").and.above(0); pm.expect(author.name).to.be.a(\"string\").and.not.empty; });",
+                "});",
+                "pm.test(\"authors are ordered by ascending id\", function () { for (let i = 1; i < json.data.length; i++) pm.expect(json.data[i - 1].id).to.be.below(json.data[i].id); });"
+              ]
+            }
+          }]
+        }
+      ]
+    },
+    {
       "name": "Articles",
       "item": [
         {
@@ -30,7 +97,11 @@
               "raw": "{\n  \"author_id\": 1,\n  \"title\": \"Membangun Golang API yang Reliable\",\n  \"body\": \"Transactional outbox menjaga consistency saat Go API menulis ke PostgreSQL, Elasticsearch, dan Redis.\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": { "raw": "{{base_url}}/articles" }
+            "url": {
+              "raw": "{{base_url}}/articles",
+              "host": ["{{base_url}}"],
+              "path": ["articles"]
+            }
           },
           "response": [],
           "event": [{
@@ -67,7 +138,11 @@
               "raw": "{\n  \"author_id\": 0,\n  \"title\": \"\",\n  \"body\": \"\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": { "raw": "{{base_url}}/articles" }
+            "url": {
+              "raw": "{{base_url}}/articles",
+              "host": ["{{base_url}}"],
+              "path": ["articles"]
+            }
           },
           "response": [],
           "event": [{
@@ -86,7 +161,15 @@
           "name": "List Articles - First Page",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/articles?limit=2" }
+            "url": {
+              "raw": "{{base_url}}/articles?query=Golang&limit=2",
+              "host": ["{{base_url}}"],
+              "path": ["articles"],
+              "query": [
+                { "key": "query", "value": "Golang" },
+                { "key": "limit", "value": "2" }
+              ]
+            }
           },
           "response": [],
           "event": [{
@@ -112,7 +195,16 @@
           "name": "List Articles - Next Page",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/articles?limit=2&cursor={{next_cursor}}" }
+            "url": {
+              "raw": "{{base_url}}/articles?query=Golang&limit=2&cursor={{next_cursor}}",
+              "host": ["{{base_url}}"],
+              "path": ["articles"],
+              "query": [
+                { "key": "query", "value": "Golang" },
+                { "key": "limit", "value": "2" },
+                { "key": "cursor", "value": "{{next_cursor}}" }
+              ]
+            }
           },
           "response": [],
           "event": [
@@ -145,7 +237,15 @@
           "name": "Search Articles - Keyword",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/articles?query=Golang&limit=10" }
+            "url": {
+              "raw": "{{base_url}}/articles?query=Golang&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["articles"],
+              "query": [
+                { "key": "query", "value": "Golang" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
           },
           "response": [],
           "event": [{
@@ -170,7 +270,15 @@
           "name": "Filter by Author",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/articles?author=Budi%20Santoso&limit=10" }
+            "url": {
+              "raw": "{{base_url}}/articles?author=Budi%20Santoso&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["articles"],
+              "query": [
+                { "key": "author", "value": "Budi Santoso" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
           },
           "response": [],
           "event": [{
@@ -193,7 +301,16 @@
           "name": "Combined Search and Author",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/articles?query=transactional&author=Budi%20Santoso&limit=10" }
+            "url": {
+              "raw": "{{base_url}}/articles?query=transactional&author=Budi%20Santoso&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["articles"],
+              "query": [
+                { "key": "query", "value": "transactional" },
+                { "key": "author", "value": "Budi Santoso" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
           },
           "response": [],
           "event": [{
@@ -216,7 +333,15 @@
           "name": "Filter by Author - No Matches",
           "request": {
             "method": "GET",
-            "url": { "raw": "{{base_url}}/articles?author=Author%20Yang%20Tidak%20Ada&limit=10" }
+            "url": {
+              "raw": "{{base_url}}/articles?author=Author%20Yang%20Tidak%20Ada&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["articles"],
+              "query": [
+                { "key": "author", "value": "Author Yang Tidak Ada" },
+                { "key": "limit", "value": "10" }
+              ]
+            }
           },
           "response": [],
           "event": [{
@@ -244,7 +369,11 @@
               "raw": "{\n  \"title\": \"Membangun Golang API yang Reliable - Updated\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": { "raw": "{{base_url}}/articles/{{article_id}}" }
+            "url": {
+              "raw": "{{base_url}}/articles/{{article_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["articles", "{{article_id}}"]
+            }
           },
           "response": [],
           "event": [{
@@ -277,7 +406,11 @@
               "raw": "{\n  \"title\": \"Artikel yang tidak ada\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": { "raw": "{{base_url}}/articles/9223372036854775807" }
+            "url": {
+              "raw": "{{base_url}}/articles/9223372036854775807",
+              "host": ["{{base_url}}"],
+              "path": ["articles", "9223372036854775807"]
+            }
           },
           "response": [],
           "event": [{
@@ -298,7 +431,14 @@
       "item": [
         {
           "name": "Health Check",
-          "request": { "method": "GET", "url": { "raw": "{{base_url}}/health" } },
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            }
+          },
           "response": [],
           "event": [{
             "listen": "test",
@@ -310,7 +450,14 @@
         },
         {
           "name": "Readiness Check",
-          "request": { "method": "GET", "url": { "raw": "{{base_url}}/ready" } },
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/ready",
+              "host": ["{{base_url}}"],
+              "path": ["ready"]
+            }
+          },
           "response": [],
           "event": [{
             "listen": "test",

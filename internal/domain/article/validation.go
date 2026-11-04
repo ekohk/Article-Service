@@ -7,12 +7,23 @@ import (
 
 // Limits defined per D-03 (Approved).
 const (
-	MaxTitleLen  = 500
-	MaxBodyLen   = 50_000
-	MinLimit     = 1
-	MaxLimit     = 100
-	DefaultLimit = 20
+	MaxTitleLen      = 500
+	MaxBodyLen       = 50_000
+	MaxAuthorNameLen = 255
+	MinLimit         = 1
+	MaxLimit         = 100
+	DefaultLimit     = 20
 )
+
+func ValidateAuthorName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: name must not be blank", ErrInvalidInput)
+	}
+	if len(name) > MaxAuthorNameLen {
+		return fmt.Errorf("%w: name exceeds maximum length of %d characters", ErrInvalidInput, MaxAuthorNameLen)
+	}
+	return nil
+}
 
 // ValidateCreate checks the invariants required to create an article.
 // Returns a wrapped ErrInvalidInput on the first violation found.

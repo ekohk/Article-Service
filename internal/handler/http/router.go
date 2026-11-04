@@ -22,6 +22,9 @@ func NewRouter(db *sql.DB, articleSvc *appsvc.Service, observability ...Observab
 	r.GET("/ready", ReadyHandler(db))
 
 	articles := NewArticleHandler(articleSvc)
+	authors := NewAuthorHandler(articleSvc)
+	r.POST("/authors", authors.Create)
+	r.GET("/authors", authors.List)
 	r.POST("/articles", articles.Create)
 	r.PATCH("/articles/:id", articles.Update)
 	r.GET("/articles", articles.List)
