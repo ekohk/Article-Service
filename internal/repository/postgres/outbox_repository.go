@@ -124,6 +124,19 @@ func (r *OutboxRepository) MarkFailed(ctx context.Context, id int64, errMsg stri
 	return nil
 }
 
+func (r *OutboxRepository) PendingCount(ctx context.Context) (int64, error) {
+	const q = `
+		SELECT COUNT(*)
+		FROM outbox_events
+		WHERE processed_at IS NULL
+		  AND is_dead = FALSE`
+	var count int64
+	if err := r.db.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return 0, fmt.Errorf("outbox PendingCount: %w", err)
+	}
+	return count, nil
+}
+
 // ── scan helper ──────────────────────────────────────────────────────────────
 
 func scanOutboxEvent(rows *sql.Rows) (*article.OutboxEvent, error) {

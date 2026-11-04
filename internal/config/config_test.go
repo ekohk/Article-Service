@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/kumparan/article-service/internal/config"
@@ -146,5 +147,20 @@ func TestLoad_OutboxMaxAttemptsMustBePositive(t *testing.T) {
 	_, err := config.Load()
 	if err == nil {
 		t.Fatal("expected error for OUTBOX_MAX_ATTEMPTS=0")
+	}
+}
+
+func TestLoad_ProductionRequiresSecureDependencies(t *testing.T) {
+	setEnv(t, requiredEnv)
+	t.Setenv("APP_ENV", "production")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected production security validation errors")
+	}
+	for _, expected := range []string{"https", "ELASTICSEARCH_USERNAME", "REDIS_PASSWORD", "TLS"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("error %q does not mention %q", err, expected)
+		}
 	}
 }

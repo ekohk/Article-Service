@@ -1,0 +1,13 @@
+.git
+.copilot
+.env
+.env.*
+!.env.example
+bin
+tmp
+*.exe
+*.test
+coverage.out
+docs
+specs
+tests

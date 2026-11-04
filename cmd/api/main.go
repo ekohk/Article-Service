@@ -13,7 +13,10 @@ import (
 	appsvc "github.com/kumparan/article-service/internal/application/article"
 	"github.com/kumparan/article-service/internal/config"
 	httphandler "github.com/kumparan/article-service/internal/handler/http"
+	"github.com/kumparan/article-service/internal/platform/cache"
+	"github.com/kumparan/article-service/internal/platform/elasticsearch"
 	"github.com/kumparan/article-service/internal/platform/logger"
+	"github.com/kumparan/article-service/internal/platform/metrics"
 	"github.com/kumparan/article-service/internal/platform/postgres"
 	pgrepo "github.com/kumparan/article-service/internal/repository/postgres"
 )
@@ -27,6 +30,7 @@ func main() {
 	}
 
 	log := logger.New(cfg.AppEnv, os.Getenv("LOG_LEVEL"))
+	registry := &metrics.Registry{}
 	log.Info("article-service api starting", "env", cfg.AppEnv, "addr", cfg.HTTP.Addr)
 
 	db, err := postgres.Open(context.Background(), cfg.DB)
@@ -40,9 +44,27 @@ func main() {
 	articleRepo := pgrepo.NewArticleRepository(db)
 	authorRepo := pgrepo.NewAuthorRepository(db)
 	outboxRepo := pgrepo.NewOutboxRepository(db, 5*time.Minute, cfg.Outbox.MaxAttempts)
-	articleSvc := appsvc.New(db, articleRepo, authorRepo, outboxRepo)
+	esClient, err := elasticsearch.New(cfg.ES)
+	if err != nil {
+		log.Error("failed to create Elasticsearch client", "error", err)
+		os.Exit(1)
+	}
+	if err := esClient.Ping(context.Background()); err != nil {
+		log.Error("failed to connect to Elasticsearch", "error", err)
+		os.Exit(1)
+	}
+	if err := esClient.EnsureIndex(context.Background()); err != nil {
+		log.Error("failed to ensure Elasticsearch index", "error", err)
+		os.Exit(1)
+	}
+	redisCache := cache.NewRedis(cfg.Redis)
+	defer redisCache.Close()
+	articleSvc := appsvc.NewWithSearch(db, articleRepo, authorRepo, outboxRepo, esClient, log,
+		appsvc.CacheConfig{Store: redisCache, TTL: cfg.Redis.CacheTTL, Metrics: registry})
 
-	router := httphandler.NewRouter(db, articleSvc)
+	router := httphandler.NewRouter(db, articleSvc, httphandler.ObservabilityConfig{
+		Logger: log, Metrics: registry,
+	})
 
 	srv := &http.Server{
 		Addr:         cfg.HTTP.Addr,

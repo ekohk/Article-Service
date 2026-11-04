@@ -36,8 +36,10 @@ type DBConfig struct {
 }
 
 type ESConfig struct {
-	URL   string
-	Index string
+	URL      string
+	Index    string
+	Username string
+	Password string
 }
 
 type RedisConfig struct {
@@ -113,8 +115,10 @@ func Load() (*Config, error) {
 			MinConns: parseInt("POSTGRES_MIN_CONNS", 2),
 		},
 		ES: ESConfig{
-			URL:   get("ELASTICSEARCH_URL"),
-			Index: getDefault("ELASTICSEARCH_INDEX", "articles-v1"),
+			URL:      get("ELASTICSEARCH_URL"),
+			Index:    getDefault("ELASTICSEARCH_INDEX", "articles-v1"),
+			Username: os.Getenv("ELASTICSEARCH_USERNAME"),
+			Password: os.Getenv("ELASTICSEARCH_PASSWORD"),
 		},
 		Redis: RedisConfig{
 			Addr:     get("REDIS_ADDR"),
@@ -130,6 +134,38 @@ func Load() (*Config, error) {
 	}
 	if cfg.Outbox.MaxAttempts < 1 {
 		errs = append(errs, "OUTBOX_MAX_ATTEMPTS must be at least 1")
+	}
+	if cfg.DB.MaxConns < 1 {
+		errs = append(errs, "POSTGRES_MAX_CONNS must be at least 1")
+	}
+	if cfg.DB.MinConns < 0 || cfg.DB.MinConns > cfg.DB.MaxConns {
+		errs = append(errs, "POSTGRES_MIN_CONNS must be between 0 and POSTGRES_MAX_CONNS")
+	}
+	if cfg.Redis.DB < 0 {
+		errs = append(errs, "REDIS_DB must not be negative")
+	}
+	if cfg.Redis.CacheTTL <= 0 {
+		errs = append(errs, "CACHE_TTL must be positive")
+	}
+	if cfg.Outbox.BatchSize < 1 {
+		errs = append(errs, "OUTBOX_BATCH_SIZE must be at least 1")
+	}
+	if cfg.Outbox.PollInterval <= 0 {
+		errs = append(errs, "OUTBOX_POLL_INTERVAL must be positive")
+	}
+	if cfg.AppEnv == "production" {
+		if !strings.HasPrefix(strings.ToLower(cfg.ES.URL), "https://") {
+			errs = append(errs, "ELASTICSEARCH_URL must use https in production")
+		}
+		if cfg.ES.Username == "" || cfg.ES.Password == "" {
+			errs = append(errs, "ELASTICSEARCH_USERNAME and ELASTICSEARCH_PASSWORD are required in production")
+		}
+		if cfg.Redis.Password == "" {
+			errs = append(errs, "REDIS_PASSWORD is required in production")
+		}
+		if strings.Contains(strings.ToLower(cfg.DB.DSN), "sslmode=disable") {
+			errs = append(errs, "POSTGRES_DSN must not disable TLS in production")
+		}
 	}
 
 	if len(errs) > 0 {

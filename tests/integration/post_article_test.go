@@ -5,6 +5,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -161,6 +162,7 @@ func TestCreate_Integration_OutboxFailureRollsBackArticle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rename outbox table: %v", err)
 	}
+
 	t.Cleanup(func() {
 		db.ExecContext(context.Background(), `ALTER TABLE outbox_events_disabled RENAME TO outbox_events`)
 	})
@@ -225,6 +227,67 @@ func TestCreate_Integration_ValidationErrors(t *testing.T) {
 				t.Errorf("expected ErrInvalidInput, got %v", err)
 			}
 		})
+	}
+}
+
+func TestUpdate_Integration_PreservesCreatedAtAndWritesOutbox(t *testing.T) {
+	db := setupDB(t)
+	authorID := seedAuthor(t, db, "Update Integration Author")
+	svc := buildSvc(db)
+	created, err := svc.Create(context.Background(), appsvc.CreateRequest{
+		AuthorID: authorID, Title: "Before", Body: "Original body",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	title := "After"
+	updated, err := svc.Update(context.Background(), appsvc.UpdateRequest{ID: created.ID, Title: &title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("created_at changed from %v to %v", created.CreatedAt, updated.CreatedAt)
+	}
+	if !updated.UpdatedAt.After(created.UpdatedAt) {
+		t.Fatalf("updated_at = %v, before %v", updated.UpdatedAt, created.UpdatedAt)
+	}
+	if updated.Version != created.Version+1 {
+		t.Fatalf("version = %d, want %d", updated.Version, created.Version+1)
+	}
+
+	var eventType string
+	var payload []byte
+	err = db.QueryRowContext(context.Background(), `
+		SELECT event_type, payload
+		FROM outbox_events
+		WHERE aggregate_id = $1 AND event_type = 'article.updated'
+		ORDER BY id DESC LIMIT 1`, created.ID).Scan(&eventType, &payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eventType != domain.EventTypeArticleUpdated {
+		t.Fatalf("event type = %q", eventType)
+	}
+	var eventPayload struct {
+		ArticleID int64 `json:"article_id"`
+		Version   int64 `json:"version"`
+	}
+	if err := json.Unmarshal(payload, &eventPayload); err != nil {
+		t.Fatal(err)
+	}
+	if eventPayload.ArticleID != created.ID || eventPayload.Version != updated.Version {
+		t.Fatalf("payload = %+v", eventPayload)
+	}
+}
+
+func TestUpdate_Integration_MissingArticle(t *testing.T) {
+	db := setupDB(t)
+	svc := buildSvc(db)
+	title := "Missing"
+	_, err := svc.Update(context.Background(), appsvc.UpdateRequest{ID: 999999999, Title: &title})
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("error = %v, want ErrNotFound", err)
 	}
 }
 

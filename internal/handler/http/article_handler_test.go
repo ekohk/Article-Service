@@ -20,13 +20,18 @@ import (
 // ── fake service satisfying ArticleService ────────────────────────────────────
 
 type fakeCreator struct {
-	result *domain.Article
-	list   *appsvc.ListResult
-	err    error
-	last   appsvc.ListRequest
+	result     *domain.Article
+	list       *appsvc.ListResult
+	err        error
+	last       appsvc.ListRequest
+	search     *appsvc.ListResult
+	lastSearch appsvc.SearchRequest
 }
 
 func (f *fakeCreator) Create(_ context.Context, _ appsvc.CreateRequest) (*domain.Article, error) {
+	return f.result, f.err
+}
+func (f *fakeCreator) Update(_ context.Context, _ appsvc.UpdateRequest) (*domain.Article, error) {
 	return f.result, f.err
 }
 
@@ -38,6 +43,14 @@ func (f *fakeCreator) List(_ context.Context, req appsvc.ListRequest) (*appsvc.L
 	return &appsvc.ListResult{Articles: []*domain.Article{}, Limit: 20}, f.err
 }
 
+func (f *fakeCreator) Search(_ context.Context, req appsvc.SearchRequest) (*appsvc.ListResult, error) {
+	f.lastSearch = req
+	if f.search != nil {
+		return f.search, f.err
+	}
+	return &appsvc.ListResult{Articles: []*domain.Article{}, Limit: req.Limit}, f.err
+}
+
 // testRouter wires a router with a fake service for article endpoints.
 func testRouter(svc httphandler.ArticleService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
@@ -45,6 +58,7 @@ func testRouter(svc httphandler.ArticleService) *gin.Engine {
 	r.Use(gin.Recovery())
 	h := httphandler.NewArticleHandler(svc)
 	r.POST("/articles", h.Create)
+	r.PATCH("/articles/:id", h.Update)
 	r.GET("/articles", h.List)
 	return r
 }
@@ -59,6 +73,14 @@ func getArticles(r *gin.Engine, rawQuery string) *httptest.ResponseRecorder {
 func postJSON(r *gin.Engine, body string) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, "/articles", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func patchJSON(r *gin.Engine, path, body string) *httptest.ResponseRecorder {
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest(http.MethodPatch, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
 	return w
@@ -223,6 +245,42 @@ func TestListHandler_NonIntegerLimit_Returns400(t *testing.T) {
 		t.Errorf("status = %d, want 400", w.Code)
 	}
 	assertErrorCode(t, w.Body.Bytes(), "VALIDATION_ERROR")
+}
+
+func TestListHandler_QueryUsesSearch(t *testing.T) {
+	creator := &fakeCreator{search: &appsvc.ListResult{
+		Articles: []*domain.Article{{ID: 9, Title: "Programming"}},
+		Limit:    10,
+	}}
+	w := getArticles(testRouter(creator), "?query=programming&limit=10")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body)
+	}
+	if creator.lastSearch.Query != "programming" || creator.lastSearch.Author != "" || creator.lastSearch.Limit != 10 {
+		t.Fatalf("search request = %+v", creator.lastSearch)
+	}
+}
+
+func TestListHandler_QueryAndAuthorUsesSearch(t *testing.T) {
+	creator := &fakeCreator{}
+	w := getArticles(testRouter(creator), "?query=programming&author=%20Budi%20")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body)
+	}
+	if creator.lastSearch.Query != "programming" || creator.lastSearch.Author != " Budi " {
+		t.Fatalf("search request = %+v", creator.lastSearch)
+	}
+	if creator.last.Author != "" {
+		t.Fatalf("listing path was used: %+v", creator.last)
+	}
+}
+
+func TestUpdateHandler_ReturnsUpdatedArticle(t *testing.T) {
+	creator := &fakeCreator{result: &domain.Article{ID: 7, Title: "Updated"}}
+	w := patchJSON(testRouter(creator), "/articles/7", `{"title":"Updated"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", w.Code, w.Body)
+	}
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

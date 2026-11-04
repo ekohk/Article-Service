@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -18,7 +19,9 @@ import (
 // service graph.
 type ArticleService interface {
 	Create(ctx context.Context, req appsvc.CreateRequest) (*domain.Article, error)
+	Update(ctx context.Context, req appsvc.UpdateRequest) (*domain.Article, error)
 	List(ctx context.Context, req appsvc.ListRequest) (*appsvc.ListResult, error)
+	Search(ctx context.Context, req appsvc.SearchRequest) (*appsvc.ListResult, error)
 }
 
 // ArticleHandler holds the dependencies for article HTTP handlers.
@@ -36,6 +39,11 @@ type createArticleRequest struct {
 	AuthorID int64  `json:"author_id"`
 	Title    string `json:"title"`
 	Body     string `json:"body"`
+}
+
+type updateArticleRequest struct {
+	Title *string `json:"title"`
+	Body  *string `json:"body"`
 }
 
 // articleResponse is the JSON representation returned to API consumers.
@@ -74,8 +82,29 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 	respondCreated(c, toArticleResponse(result))
 }
 
-// List handles GET /articles (PostgreSQL newest-first listing and author filter).
-// Keyword search remains out of scope until IMPL-13.
+func (h *ArticleHandler) Update(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "id must be a positive integer")
+		return
+	}
+	var req updateArticleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "invalid or malformed request body")
+		return
+	}
+	result, err := h.svc.Update(c.Request.Context(), appsvc.UpdateRequest{
+		ID: id, Title: req.Title, Body: req.Body,
+	})
+	if err != nil {
+		mapServiceError(c, err)
+		return
+	}
+	respondOK(c, toArticleResponse(result))
+}
+
+// List handles GET /articles (PostgreSQL listing or Elasticsearch keyword search).
 func (h *ArticleHandler) List(c *gin.Context) {
 	limit := domain.DefaultLimit
 	if raw, ok := c.GetQuery("limit"); ok {
@@ -87,11 +116,22 @@ func (h *ArticleHandler) List(c *gin.Context) {
 		limit = n
 	}
 
-	result, err := h.svc.List(c.Request.Context(), appsvc.ListRequest{
-		Author: c.Query("author"),
-		Limit:  limit,
-		Cursor: c.Query("cursor"),
-	})
+	var result *appsvc.ListResult
+	var err error
+	if strings.TrimSpace(c.Query("query")) != "" {
+		result, err = h.svc.Search(c.Request.Context(), appsvc.SearchRequest{
+			Query:  c.Query("query"),
+			Author: c.Query("author"),
+			Limit:  limit,
+			Cursor: c.Query("cursor"),
+		})
+	} else {
+		result, err = h.svc.List(c.Request.Context(), appsvc.ListRequest{
+			Author: c.Query("author"),
+			Limit:  limit,
+			Cursor: c.Query("cursor"),
+		})
+	}
 	if err != nil {
 		mapServiceError(c, err)
 		return

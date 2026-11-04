@@ -19,4 +19,7 @@ var (
 	// ErrInvalidCursor is returned when a pagination cursor cannot be decoded
 	// or does not match the current query context.
 	ErrInvalidCursor = errors.New("invalid cursor")
+
+	// ErrPITExpired indicates that an Elasticsearch search PIT no longer exists.
+	ErrPITExpired = errors.New("search PIT expired or missing")
 )
