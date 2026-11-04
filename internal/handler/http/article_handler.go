@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,20 +13,21 @@ import (
 	domain "github.com/kumparan/article-service/internal/domain/article"
 )
 
-// ArticleCreator is the subset of the application service used by this handler.
+// ArticleService is the subset of the application service used by this handler.
 // Declaring a narrow interface here keeps the handler testable without the full
 // service graph.
-type ArticleCreator interface {
+type ArticleService interface {
 	Create(ctx context.Context, req appsvc.CreateRequest) (*domain.Article, error)
+	List(ctx context.Context, req appsvc.ListRequest) (*appsvc.ListResult, error)
 }
 
 // ArticleHandler holds the dependencies for article HTTP handlers.
 type ArticleHandler struct {
-	svc ArticleCreator
+	svc ArticleService
 }
 
 // NewArticleHandler creates an ArticleHandler.
-func NewArticleHandler(svc ArticleCreator) *ArticleHandler {
+func NewArticleHandler(svc ArticleService) *ArticleHandler {
 	return &ArticleHandler{svc: svc}
 }
 
@@ -70,6 +72,41 @@ func (h *ArticleHandler) Create(c *gin.Context) {
 	}
 
 	respondCreated(c, toArticleResponse(result))
+}
+
+// List handles GET /articles (PostgreSQL newest-first listing and author filter).
+// Keyword search remains out of scope until IMPL-13.
+func (h *ArticleHandler) List(c *gin.Context) {
+	limit := domain.DefaultLimit
+	if raw, ok := c.GetQuery("limit"); ok {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "limit must be an integer between 1 and 100")
+			return
+		}
+		limit = n
+	}
+
+	result, err := h.svc.List(c.Request.Context(), appsvc.ListRequest{
+		Author: c.Query("author"),
+		Limit:  limit,
+		Cursor: c.Query("cursor"),
+	})
+	if err != nil {
+		mapServiceError(c, err)
+		return
+	}
+
+	items := make([]articleResponse, 0, len(result.Articles))
+	for _, a := range result.Articles {
+		items = append(items, toArticleResponse(a))
+	}
+
+	respondList(c, items, paginationBody{
+		Limit:      result.Limit,
+		NextCursor: result.NextCursor,
+		HasMore:    result.HasMore,
+	})
 }
 
 // mapServiceError translates domain/application errors to HTTP responses.

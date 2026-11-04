@@ -39,7 +39,7 @@ func main() {
 	// Wire repositories and application service.
 	articleRepo := pgrepo.NewArticleRepository(db)
 	authorRepo := pgrepo.NewAuthorRepository(db)
-	outboxRepo := pgrepo.NewOutboxRepository(db, 5*time.Minute)
+	outboxRepo := pgrepo.NewOutboxRepository(db, 5*time.Minute, cfg.Outbox.MaxAttempts)
 	articleSvc := appsvc.New(db, articleRepo, authorRepo, outboxRepo)
 
 	router := httphandler.NewRouter(db, articleSvc)

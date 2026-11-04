@@ -120,6 +120,73 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*domain.Articl
 	return saved, nil
 }
 
+// ListRequest carries pagination input for GET /articles (PostgreSQL listing).
+type ListRequest struct {
+	Author string
+	Limit  int
+	Cursor string
+}
+
+// ListResult is a page of articles plus keyset pagination metadata.
+type ListResult struct {
+	Articles   []*domain.Article
+	Limit      int
+	NextCursor *string
+	HasMore    bool
+}
+
+// List returns a newest-first page of articles from PostgreSQL.
+// Keyword search and author filters are out of scope for IMPL-08.
+func (s *Service) List(ctx context.Context, req ListRequest) (*ListResult, error) {
+	if err := domain.ValidateLimit(req.Limit); err != nil {
+		return nil, err
+	}
+	authorName := domain.NormalizeAuthorName(req.Author)
+	cursor, err := domain.DecodeCursor(req.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	if cursor != nil && cursor.AuthorName != authorName {
+		return nil, fmt.Errorf("%w: cursor does not match author filter", domain.ErrInvalidCursor)
+	}
+
+	rows, err := s.articles.List(ctx, domain.ListParams{
+		AuthorName: authorName,
+		Limit:      req.Limit,
+		Cursor:     cursor,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list articles: %w", err)
+	}
+
+	hasMore := len(rows) > req.Limit
+	if hasMore {
+		rows = rows[:req.Limit]
+	}
+	if rows == nil {
+		rows = []*domain.Article{}
+	}
+
+	result := &ListResult{
+		Articles: rows,
+		Limit:    req.Limit,
+		HasMore:  hasMore,
+	}
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		token, err := domain.EncodeCursor(domain.Cursor{
+			CreatedAt:  last.CreatedAt.UTC().UnixNano(),
+			ID:         last.ID,
+			AuthorName: authorName,
+		})
+		if err != nil {
+			return nil, err
+		}
+		result.NextCursor = &token
+	}
+	return result, nil
+}
+
 // eventPayload is the minimal outbox payload; worker loads article by ID (D-02).
 type eventPayload struct {
 	ArticleID  int64     `json:"article_id"`

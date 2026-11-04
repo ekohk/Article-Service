@@ -38,6 +38,7 @@ type OutboxEvent struct {
 	CreatedAt     time.Time
 	ProcessedAt   *time.Time
 	Attempts      int
+	IsDead        bool
 	AvailableAt   time.Time
 	LockedAt      *time.Time
 	LockedBy      string

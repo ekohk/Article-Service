@@ -138,3 +138,13 @@ func TestLoad_InvalidInt(t *testing.T) {
 		t.Fatal("expected error for invalid POSTGRES_MAX_CONNS, got nil")
 	}
 }
+
+func TestLoad_OutboxMaxAttemptsMustBePositive(t *testing.T) {
+	setEnv(t, requiredEnv)
+	t.Setenv("OUTBOX_MAX_ATTEMPTS", "0")
+
+	_, err := config.Load()
+	if err == nil {
+		t.Fatal("expected error for OUTBOX_MAX_ATTEMPTS=0")
+	}
+}

@@ -102,7 +102,7 @@ func TestMigration_UpDownUp(t *testing.T) {
 		if err := row.Scan(&colExists); err != nil || !colExists {
 			t.Error("column articles.version not found after migration up")
 		}
-		// Verify locked_by column exists on outbox_events.
+		// Verify IMPL-10 outbox columns exist.
 		row = db.QueryRow(`
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.columns
@@ -110,6 +110,14 @@ func TestMigration_UpDownUp(t *testing.T) {
 			)`)
 		if err := row.Scan(&colExists); err != nil || !colExists {
 			t.Error("column outbox_events.locked_by not found after migration up")
+		}
+		row = db.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns
+				WHERE table_name='outbox_events' AND column_name='is_dead'
+			)`)
+		if err := row.Scan(&colExists); err != nil || !colExists {
+			t.Error("column outbox_events.is_dead not found after migration up")
 		}
 	})
 

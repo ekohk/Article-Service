@@ -93,7 +93,7 @@ func buildSvc(db *sql.DB) *appsvc.Service {
 	return appsvc.New(db,
 		pgrepo.NewArticleRepository(db),
 		pgrepo.NewAuthorRepository(db),
-		pgrepo.NewOutboxRepository(db, 5*time.Minute),
+		pgrepo.NewOutboxRepository(db, 5*time.Minute, 10),
 	)
 }
 

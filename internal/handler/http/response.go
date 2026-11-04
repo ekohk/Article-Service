@@ -28,6 +28,21 @@ func respondOK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, envelope{Data: data})
 }
 
+type paginationBody struct {
+	Limit      int     `json:"limit"`
+	NextCursor *string `json:"next_cursor"`
+	HasMore    bool    `json:"has_more"`
+}
+
+type listEnvelope struct {
+	Data       any            `json:"data"`
+	Pagination paginationBody `json:"pagination"`
+}
+
+func respondList(c *gin.Context, data any, page paginationBody) {
+	c.JSON(http.StatusOK, listEnvelope{Data: data, Pagination: page})
+}
+
 func respondCreated(c *gin.Context, data any) {
 	c.JSON(http.StatusCreated, envelope{Data: data})
 }

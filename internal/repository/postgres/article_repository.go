@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/kumparan/article-service/internal/domain/article"
 )
@@ -115,10 +116,65 @@ func (r *ArticleRepository) GetByIDs(ctx context.Context, ids []int64) ([]*artic
 }
 
 // List returns articles ordered by (created_at DESC, id DESC) with optional
-// author-name filter and keyset pagination. Implements IMPL-08 contract.
+// exact normalized author-name filtering and keyset pagination.
 func (r *ArticleRepository) List(ctx context.Context, p article.ListParams) ([]*article.Article, error) {
-	// Built in IMPL-08; placeholder to satisfy interface in IMPL-07.
-	return nil, fmt.Errorf("List not yet implemented")
+	const cols = `
+		SELECT a.id, a.author_id, a.title, a.body, a.version, a.created_at, a.updated_at
+		FROM articles AS a`
+
+	fetch := p.Limit + 1 // one extra row to detect has_more in the service
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	switch {
+	case p.AuthorName == "" && p.Cursor == nil:
+		q := cols + `
+			ORDER BY a.created_at DESC, a.id DESC
+			LIMIT $1`
+		rows, err = r.db.QueryContext(ctx, q, fetch)
+	case p.AuthorName == "":
+		q := cols + `
+			WHERE (a.created_at, a.id) < ($1, $2)
+			ORDER BY a.created_at DESC, a.id DESC
+			LIMIT $3`
+		cursorTime := time.Unix(0, p.Cursor.CreatedAt).UTC()
+		rows, err = r.db.QueryContext(ctx, q, cursorTime, p.Cursor.ID, fetch)
+	case p.Cursor == nil:
+		q := cols + `
+			JOIN authors AS au ON au.id = a.author_id
+			WHERE LOWER(BTRIM(au.name)) = $1
+			ORDER BY a.created_at DESC, a.id DESC
+			LIMIT $2`
+		rows, err = r.db.QueryContext(ctx, q, p.AuthorName, fetch)
+	default:
+		q := cols + `
+			JOIN authors AS au ON au.id = a.author_id
+			WHERE LOWER(BTRIM(au.name)) = $1
+			  AND (a.created_at, a.id) < ($2, $3)
+			ORDER BY a.created_at DESC, a.id DESC
+			LIMIT $4`
+		cursorTime := time.Unix(0, p.Cursor.CreatedAt).UTC()
+		rows, err = r.db.QueryContext(ctx, q, p.AuthorName, cursorTime, p.Cursor.ID, fetch)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("article List: %w", err)
+	}
+	defer rows.Close()
+
+	articles := make([]*article.Article, 0)
+	for rows.Next() {
+		a, err := scanArticleRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("article List scan: %w", err)
+		}
+		articles = append(articles, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("article List rows: %w", err)
+	}
+	return articles, nil
 }
 
 // ── scan helpers ──────────────────────────────────────────────────────────────

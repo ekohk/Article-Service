@@ -128,6 +128,9 @@ func Load() (*Config, error) {
 			MaxAttempts:  parseInt("OUTBOX_MAX_ATTEMPTS", 10),
 		},
 	}
+	if cfg.Outbox.MaxAttempts < 1 {
+		errs = append(errs, "OUTBOX_MAX_ATTEMPTS must be at least 1")
+	}
 
 	if len(errs) > 0 {
 		return nil, errors.New(strings.Join(errs, "\n"))

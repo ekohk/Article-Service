@@ -15,8 +15,9 @@ type ListParams struct {
 // Cursor encodes the keyset position for stable pagination.
 // The cursor is opaque to API consumers; it is base64-encoded JSON internally.
 type Cursor struct {
-	CreatedAt int64 // Unix nano
-	ID        int64
+	CreatedAt  int64 // Unix nano
+	ID         int64
+	AuthorName string // normalized filter context; empty means unfiltered listing
 }
 
 // ArticleRepository defines persistence operations for articles.

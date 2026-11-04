@@ -18,6 +18,7 @@ func NewRouter(db *sql.DB, articleSvc *appsvc.Service) *gin.Engine {
 
 	articles := NewArticleHandler(articleSvc)
 	r.POST("/articles", articles.Create)
+	r.GET("/articles", articles.List)
 
 	return r
 }

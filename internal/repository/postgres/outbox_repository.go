@@ -11,15 +11,16 @@ import (
 
 // OutboxRepository is the PostgreSQL implementation of article.OutboxRepository.
 type OutboxRepository struct {
-	db       *sql.DB
-	leaseTTL time.Duration // how long a claim lock is valid before expiry
+	db          *sql.DB
+	leaseTTL    time.Duration // how long a claim lock is valid before expiry
+	maxAttempts int
 }
 
 // NewOutboxRepository creates an OutboxRepository.
 // leaseTTL is the maximum duration a claimed event can be held before it becomes
 // eligible for re-claiming by another worker (handles worker crash recovery).
-func NewOutboxRepository(db *sql.DB, leaseTTL time.Duration) *OutboxRepository {
-	return &OutboxRepository{db: db, leaseTTL: leaseTTL}
+func NewOutboxRepository(db *sql.DB, leaseTTL time.Duration, maxAttempts int) *OutboxRepository {
+	return &OutboxRepository{db: db, leaseTTL: leaseTTL, maxAttempts: maxAttempts}
 }
 
 // Insert writes a new pending outbox event within the given transaction.
@@ -49,6 +50,7 @@ func (r *OutboxRepository) ClaimBatch(ctx context.Context, batchSize int, worker
 			SELECT id
 			FROM outbox_events
 			WHERE processed_at IS NULL
+			  AND is_dead = FALSE
 			  AND available_at <= NOW()
 			  AND (locked_at IS NULL OR locked_at < NOW() - $3::interval)
 			ORDER BY available_at, id
@@ -61,7 +63,7 @@ func (r *OutboxRepository) ClaimBatch(ctx context.Context, batchSize int, worker
 		FROM candidates
 		WHERE o.id = candidates.id
 		RETURNING o.id, o.aggregate_type, o.aggregate_id, o.event_type,
-		          o.payload, o.created_at, o.processed_at, o.attempts,
+		          o.payload, o.created_at, o.processed_at, o.attempts, o.is_dead,
 		          o.available_at, o.locked_at, o.locked_by, o.last_error`
 
 	leaseTTLStr := fmt.Sprintf("%d seconds", int(r.leaseTTL.Seconds()))
@@ -89,7 +91,9 @@ func (r *OutboxRepository) MarkProcessed(ctx context.Context, id int64) error {
 		SET processed_at = NOW(),
 		    locked_by    = NULL,
 		    locked_at    = NULL
-		WHERE id = $1`
+		WHERE id = $1
+		  AND processed_at IS NULL
+		  AND is_dead = FALSE`
 
 	_, err := r.db.ExecContext(ctx, q, id)
 	if err != nil {
@@ -104,13 +108,16 @@ func (r *OutboxRepository) MarkFailed(ctx context.Context, id int64, errMsg stri
 	const q = `
 		UPDATE outbox_events
 		SET attempts      = attempts + 1,
+		    is_dead       = attempts + 1 >= $4,
 		    last_error    = $2,
 		    available_at  = $3,
 		    locked_by     = NULL,
 		    locked_at     = NULL
-		WHERE id = $1`
+		WHERE id = $1
+		  AND processed_at IS NULL
+		  AND is_dead = FALSE`
 
-	_, err := r.db.ExecContext(ctx, q, id, errMsg, nextAvailableAt)
+	_, err := r.db.ExecContext(ctx, q, id, errMsg, nextAvailableAt, r.maxAttempts)
 	if err != nil {
 		return fmt.Errorf("outbox MarkFailed: %w", err)
 	}
@@ -128,7 +135,7 @@ func scanOutboxEvent(rows *sql.Rows) (*article.OutboxEvent, error) {
 
 	err := rows.Scan(
 		&e.ID, &e.AggregateType, &e.AggregateID, &e.EventType,
-		&e.Payload, &e.CreatedAt, &processedAt, &e.Attempts,
+		&e.Payload, &e.CreatedAt, &processedAt, &e.Attempts, &e.IsDead,
 		&e.AvailableAt, &lockedAt, &lockedBy, &lastError,
 	)
 	if err != nil {
