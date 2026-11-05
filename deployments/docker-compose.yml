@@ -1,6 +1,7 @@
+
 services:
 
-  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  # PostgreSQL
   postgres:
     image: postgres:16.9-alpine
     environment:
@@ -10,7 +11,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"   # exposed on host port 5433 to avoid conflict with local postgres
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d articles"]
       interval: 5s
@@ -20,7 +21,7 @@ services:
     networks:
       - backend
 
-  # ── Elasticsearch ───────────────────────────────────────────────────────────
+  # Elasticsearch
   elasticsearch:
     image: elasticsearch:8.17.4
     environment:
@@ -29,6 +30,8 @@ services:
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
       interval: 10s
@@ -38,12 +41,14 @@ services:
     networks:
       - backend
 
-  # ── Redis ────────────────────────────────────────────────────────────────────
+  # Redis
   redis:
     image: redis:7.4.3-alpine
     command: redis-server --save "" --appendonly no
     volumes:
       - redis_data:/data
+    ports:
+      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -53,7 +58,7 @@ services:
     networks:
       - backend
 
-  # ── API ──────────────────────────────────────────────────────────────────────
+  # API
   api:
     build:
       context: ..
@@ -90,7 +95,7 @@ services:
     networks:
       - backend
 
-  # ── Worker ───────────────────────────────────────────────────────────────────
+  # Worker
   worker:
     build:
       context: ..

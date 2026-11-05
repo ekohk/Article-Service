@@ -33,21 +33,79 @@ Important behavior:
 - Author matching is exact after `LOWER(BTRIM(name))`; accents are not folded.
 - `created_at` is immutable; updates increment `version`.
 
+## Technology Stack
+
+| Technology | Purpose |
+|---|---|
+| Go | Primary programming language for backend development |
+| Gin | HTTP routing and API handling |
+| PostgreSQL | Primary database and source of truth |
+| Elasticsearch | Full-text article search and indexing |
+| Redis | Optional read caching |
+| Goose | Database schema migrations |
+| Docker Compose | Local development and service orchestration |
+| k6 | Load testing and performance evaluation |
+| Postman | Manual API testing |
+
+The application uses direct SQL queries through PostgreSQL drivers without an ORM, as required by the assessment.
+
+## Project Structure
+
+The repository follows a modular structure that separates application responsibilities, infrastructure, deployment configuration, tests, and development documentation.
+
+Each directory has a specific responsibility, making the codebase easier to understand, test, and maintain.
+
+## Design & Development Approach
+
+### Spec-Driven Development (SDD)
+
+This project was developed using **Spec-Driven Development (SDD)**, with AI serving as the primary tool throughout the development process.
+
+I chose this approach because it makes development more structured, consistent, and efficient. Instead of immediately generating code, requirements, technical decisions, implementation tasks, and acceptance criteria are defined before implementation begins.
+
+The development process follows these stages:
+
+1. **Requirement Analysis:** Analyze assessment requirements, constraints, and expected system behavior.
+2. **PRD Creation:** Define product requirements and functional expectations.
+3. **Technical Design:** Define the architecture, technology stack, data flow, and technical decisions through the Technical Design Document (TDD).
+4. **Implementation Planning:** Break down development into manageable tasks with dependencies and clear completion criteria.
+5. **Incremental Implementation:** Implement each task progressively based on the approved specifications.
+6. **Testing & Verification:** Review generated code, execute unit and integration tests, and verify implementation against the specifications.
+
+The specifications are maintained as **living documents**. When an issue or requirement change is identified, the relevant specification can be updated and tracked through version control before the implementation is adjusted.
+
+This approach provides AI with clear context, rules, and constraints, helping reduce implementation deviations and keeping the development process aligned with the intended requirements.
+
+### Development Documentation
+
+The following documents support the development process:
+
+- Product Requirements Document (PRD): [Article-Service-PRD](./specs/Article-Service-PRD.md)
+- Technical Design Document (TDD): [Article-Service-TDD](./specs/Article-Service-TDD.md)
+- Implementation Plan: [Implementation Plan](./specs/IMPLEMENTATION.md)
+- Architecture Decision Records: [Architecture Decisions](#architecture-decisions)
+
 ## Prerequisites
 
 - Go 1.27.1 or compatible.
-- Docker and Docker Compose.
-- Optional: `psql`, `k6`, and `curl` for direct database, benchmark, and API
-  operations.
+- Docker Desktop with Docker Compose v2.
+- PowerShell on Windows (the commands below use PowerShell syntax).
+- Optional: GNU Make for the convenience targets in `Makefile`.
+- Optional: `psql`, `curl.exe`, and `k6` for direct database, API, and
+  benchmark operations.
 
-The local Compose file pins PostgreSQL 16.9, Elasticsearch 8.17.4, and Redis
-7.4.3. Elasticsearch is intentionally configured as a single-node local
-development dependency and is not a production HA topology.
+The development Compose file starts PostgreSQL 16.9, Elasticsearch 8.17.4,
+Redis 7.4.3, the API, and the outbox worker. Elasticsearch security is disabled
+and PostgreSQL uses local development credentials; this Compose file is not a
+production topology.
 
 ## Configuration
 
-Use [.env.example](./.env.example) as a configuration reference and adjust
-values for the execution environment. Required settings include:
+Use [.env.example](./.env.example) as a configuration reference. The API and
+worker require `POSTGRES_DSN`, `ELASTICSEARCH_URL`, and `REDIS_ADDR`.
+The development Compose file supplies these values internally. When running
+the binaries directly on the host, use host addresses such as
+`localhost:5433`, `localhost:9200`, and `localhost:6379`.
 
 | Variable | Example | Purpose |
 |---|---|---|
@@ -56,15 +114,24 @@ values for the execution environment. Required settings include:
 | `POSTGRES_MIN_CONNS` | `2` | Minimum idle connections |
 | `ELASTICSEARCH_URL` | `http://localhost:9200` | Elasticsearch URL |
 | `ELASTICSEARCH_INDEX` | `articles-v1` | Write index |
+| `ELASTICSEARCH_USERNAME` | empty locally | Basic Auth username in production |
+| `ELASTICSEARCH_PASSWORD` | empty locally | Basic Auth password in production |
 | `REDIS_ADDR` | `localhost:6379` | Optional cache address |
+| `REDIS_PASSWORD` | empty locally | Redis password; required in production |
+| `REDIS_DB` | `0` | Redis logical database |
 | `CACHE_TTL` | `45s` | Cache TTL |
 | `OUTBOX_BATCH_SIZE` | `100` | Worker batch size |
 | `OUTBOX_POLL_INTERVAL` | `1s` | Worker polling interval |
 | `OUTBOX_MAX_ATTEMPTS` | `10` | Retry/dead-letter threshold |
+| `APP_ENV` | `development` | Environment name |
+| `HTTP_ADDR` | `:8080` | API listen address |
+| `HTTP_READ_TIMEOUT` | `5s` | HTTP read timeout |
+| `HTTP_WRITE_TIMEOUT` | `10s` | HTTP write timeout |
+| `HTTP_IDLE_TIMEOUT` | `60s` | HTTP idle timeout |
 
-The Compose service names (`postgres`, `elasticsearch`, and `redis`) must be
-used from containers. The host PostgreSQL port is `5433`; the API port is
-`8080`.
+Inside Compose, use service names `postgres`, `elasticsearch`, and `redis`.
+From the host, PostgreSQL is exposed on port `5433`, Elasticsearch on `9200`,
+Redis on `6379`, and the API on `8080`.
 
 ### Production configuration
 
@@ -122,25 +189,50 @@ traffic.
 
 From the repository root:
 
+Run from the repository root. Start the dependencies first, apply migrations,
+then start the API and worker:
+
 ```powershell
-docker compose -f deployments\docker-compose.yml up -d --build
+docker compose -p article-service -f deployments\docker-compose.yml up -d postgres elasticsearch redis
+$env:POSTGRES_DSN = "postgres://app:app@localhost:5433/articles?sslmode=disable"
+go run github.com/pressly/goose/v3/cmd/goose -dir migrations postgres $env:POSTGRES_DSN up
+docker compose -p article-service -f deployments\docker-compose.yml up -d --build api worker
 ```
+
+Equivalent Makefile commands are:
+
+```powershell
+make docker-up
+make docker-ps
+```
+
+`make docker-up` starts all services, but migrations still need to be applied
+explicitly before the API handles requests.
 
 Check service health:
 
 ```powershell
-docker compose -f deployments\docker-compose.yml ps
+docker compose -p article-service -f deployments\docker-compose.yml ps
 curl.exe http://localhost:8080/health
 curl.exe http://localhost:8080/ready
 ```
 
-Run migrations explicitly before starting the API and worker. To run Goose
-commands directly from the host, set `POSTGRES_DSN` first:
+Migration commands use the `POSTGRES_DSN` environment variable. Set it before
+running them:
 
 ```powershell
 $env:POSTGRES_DSN = "postgres://app:app@localhost:5433/articles?sslmode=disable"
 go run github.com/pressly/goose/v3/cmd/goose -dir migrations postgres $env:POSTGRES_DSN up
 go run github.com/pressly/goose/v3/cmd/goose -dir migrations postgres $env:POSTGRES_DSN status
+```
+
+The equivalent Makefile targets are `make migrate-up`,
+`make migrate-status`, and `make migrate-down`.
+
+Stop the local stack with:
+
+```powershell
+make docker-down
 ```
 
 Migration rollback and re-apply:
@@ -304,7 +396,47 @@ success, and `version` increments.
 There is no generated OpenAPI file in this repository; the contract above is
 the current API reference and is covered by handler/integration tests.
 
+### Request examples
+
+Create an author and then use its ID to create an article:
+
+```powershell
+$author = Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8080/authors `
+  -ContentType "application/json" `
+  -Body '{"name":"Andi Pratama"}'
+
+$article = Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8080/articles `
+  -ContentType "application/json" `
+  -Body (@{
+    author_id = $author.data.id
+    title = "Membangun API Go"
+    body = "Contoh artikel untuk pengujian Article Service."
+  } | ConvertTo-Json)
+```
+
+List, filter, search, paginate, and update articles:
+
+```text
+GET   http://localhost:8080/authors
+GET   http://localhost:8080/articles?limit=20
+GET   http://localhost:8080/articles?author=Andi%20Pratama&limit=20
+GET   http://localhost:8080/articles?query=Golang&limit=20
+GET   http://localhost:8080/articles?query=Golang&author=Andi%20Pratama&limit=20
+GET   http://localhost:8080/articles?query=Golang&limit=20&cursor=<next_cursor>
+PATCH http://localhost:8080/articles/<article_id>
+GET   http://localhost:8080/health
+GET   http://localhost:8080/ready
+```
+
+An Elasticsearch cursor must be reused with the same `query` and `author`
+parameters that produced it. Changing or removing those filters returns
+`INVALID_CURSOR`.
+
 ## Tests and validation
+
+From the repository root, use the Makefile or run the commands directly.
 
 Format, static analysis, and build:
 
@@ -315,18 +447,38 @@ go build ./...
 git diff --check
 ```
 
+Equivalent targets are `make fmt`, `make vet`, and `make build`.
+
 Unit and package tests:
 
 ```powershell
 go test -count=1 -p 1 ./...
 ```
 
-Integration tests require the real PostgreSQL, Elasticsearch, and Redis
-services. The validated Docker-network form is:
+For unit/package tests without the integration package:
+
+```powershell
+make test-unit
+```
+
+`make test` runs packages serially with `-p 1`; integration tests skip
+themselves when their environment variables are not set.
+
+Integration tests require real PostgreSQL and Elasticsearch. Redis-backed tests
+also use the real Redis service when `REDIS_ADDR` is set. Start the local
+dependencies first:
+
+```powershell
+docker compose -p article-service -f deployments\docker-compose.yml up -d postgres elasticsearch redis
+```
+
+The PowerShell command below runs the complete suite inside Linux Go on the
+Compose network. This avoids Windows Docker-DNS and Windows test-binary
+execution restrictions:
 
 ```powershell
 $repo = (Get-Location).Path
-docker run --rm --network deployments_backend `
+docker run --rm --network article-service_backend `
   -v "${repo}:/src" -w /src `
   -e POSTGRES_DSN="postgres://app:app@deployments-postgres-1:5432/articles?sslmode=disable" `
   -e ELASTICSEARCH_URL="http://elasticsearch:9200" `
@@ -334,10 +486,17 @@ docker run --rm --network deployments_backend `
   golang:1.27.1-alpine go test -count=1 -p 1 ./...
 ```
 
+The explicit `-p article-service` above makes the Docker network name
+`article-service_backend` predictable for the test command. If the stack was
+started with a different Compose project name, replace the network name in the
+`docker run` command accordingly.
+
 `-p 1` is intentional because integration packages share a PostgreSQL
-database. Tests cover migrations, outbox claim/retry/dead-letter behavior,
-worker synchronization, Elasticsearch search/PIT, cache behavior, and API
-flows.
+database. The integration tests read `POSTGRES_DSN`, `ELASTICSEARCH_URL`, and
+`REDIS_ADDR`; if a required variable is absent, the relevant test reports
+`SKIP`, not `PASS`. Tests cover migrations, outbox claim/retry/dead-letter
+behavior, worker synchronization, Elasticsearch search/PIT, cache behavior,
+and API flows.
 
 ## Benchmark
 
@@ -389,25 +548,50 @@ Approved project decisions D-01 through D-06 are recorded in
 [IMPLEMENTATION.md](./specs/IMPLEMENTATION.md) and summarized in
 [decisions.md](./docs/decisions.md).
 
-## AI-assisted development and verification
+## AI-Assisted Development
 
-Development was assisted by the Copilot SDK in VS Code. The tools used during
-the implementation included repository search and file inspection, patch
-editing, Git status/diff inspection, Go formatting/build/vet/test commands,
-Docker Compose/container execution, PostgreSQL `EXPLAIN`, Elasticsearch and
-Redis integration tests, and k6 execution.
+### AI as a Development Tool
 
-AI assistance covered implementation drafts, test drafts, repository
-exploration, and validation command selection. Results were verified by
-reading the existing code/specifications, preserving the existing working
-tree, running focused tests, running the serial full suite, and exercising
-real PostgreSQL, Elasticsearch, Redis, and k6 where applicable.
+AI was used throughout the development of this project, including requirements analysis, specification writing, technical design, implementation, test development, documentation, and debugging.
 
-One observed AI error was an incorrectly inserted nested Go test function,
-which caused `expected '('` syntax errors. The surrounding function was
-inspected, the declarations were moved to package scope, and formatting plus
-focused/full tests were rerun. This is why generated changes are not treated
-as verified until the repository checks pass.
+The implementation was AI-generated, guided by the specifications, development rules, and implementation plan defined throughout the project.
+
+I chose to use AI because modern software development is evolving rapidly, and developers should learn to use available tools effectively. AI can accelerate development, reduce repetitive work, and allow developers to focus more on problem-solving, system design, and quality evaluation.
+
+However, AI is a development tool, not a replacement for developer responsibility. The direction, constraints, technical decisions, and final acceptance of the implementation remained under my control.
+
+The responsibilities were divided as follows:
+
+| Activity | AI Contribution | Developer Responsibility |
+|---|---|---|
+| Requirements & Specifications | Generate and refine specification documents | Define requirements and constraints |
+| Technical Design | Suggest architecture and technical solutions | Evaluate and approve technical decisions |
+| Implementation | Generate application code | Review and understand the implementation |
+| Testing | Generate test cases and test code | Execute tests and evaluate results |
+| Debugging | Analyze errors and suggest solutions | Verify issues and determine the final solution |
+| Documentation | Generate and organize documentation | Ensure accuracy and consistency with the implementation |
+
+Using SDD helped maintain clear context, rules, and boundaries for AI-generated work. Tasks were implemented incrementally, allowing each stage to be reviewed and verified before proceeding.
+
+Specifications were also maintained as living documents. When an issue was identified, the relevant specification could be updated and tracked through version control before adjusting the implementation.
+
+My guiding principle is:
+
+> AI can generate code, but developers remain responsible for deciding what should be built, why it should be built, how the result should be evaluated, and whether the final implementation is acceptable.
+
+### AI Failure Case
+
+**Case: Incorrectly Generated Nested Go Test Function**
+
+During test development, AI generated a nested Go test function declaration, which is not valid Go syntax.
+
+- **Initial Suggestion:** AI inserted a test function declaration inside another function.
+- **Why It Was Incorrect:** Go does not support nested named function declarations.
+- **How It Was Identified:** Running the Go test command produced a syntax error: `expected '('`.
+- **Final Solution:** I inspected the surrounding test code and moved the test function declarations to package scope.
+- **Verification:** I ran Go formatting and the relevant focused tests, followed by the broader test suite.
+
+This case demonstrates that AI-generated code is not always correct. Generated implementations must be reviewed, understood, and validated before being accepted.
 
 ## Known limitations
 
